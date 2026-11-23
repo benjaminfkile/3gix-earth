@@ -13,6 +13,8 @@ export const DEFAULT_START = {
   lon: rad(-113.994),
   /** Meters above the ground. */
   height: 20_000,
+  /** Radians clockwise from north: facing north. */
+  heading: 0,
   /** Radians below level. */
   tilt: rad(45),
 };

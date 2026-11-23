@@ -88,7 +88,7 @@ Shown when `?debug=1` or the settings switch is on. A side panel on wide screens
 
 ## 8. Geodesy
 
-`src/geo/` holds the only Earth math: WGS84 (a = 6378137 m, f = 1/298.257223563) conversion between latitude, longitude, height and positions in frame 4's axes (the frame's +z is the north pole, +x is longitude 0, as the renderer's `--start-on` directions use), local east-north-up axes, heading and tilt from a camera orientation and back, and great-circle distance. When `frames()` reports frame 4's surface radii, a mismatch with WGS84 above 1 m is logged once.
+`src/geo/` holds the only Earth math: WGS84 (a = 6378137 m, f = 1/298.257223563) conversion between latitude, longitude, height and positions in frame 4's axes (the frame's +z is the north pole, +x is longitude 0, as the renderer's `--start-on` directions use), local east-north-up axes, heading and tilt from a camera orientation and back, and great-circle distance. Heading is clockwise from north and tilt is the angle below level, both against the geodetic east, north, up axes at the camera; the camera looks along its local -z with +y up (the renderer's convention). When `frames()` reports frame 4's surface radii, a mismatch with WGS84 above 1 m is logged once.
 
 ## 9. Proof
 
