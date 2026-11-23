@@ -14,9 +14,11 @@ Contract: `docs/design.md` here and `3gix-shell/docs/design.md`. Rules for every
 | E5 search, bookmarks (861) | 3gix-earth | `briefs/E5.md` | E4 |
 | E6 time, layers, phones (862) | 3gix-earth | `briefs/E6.md` | E5 |
 
-The renderer package comes from the `3gix-renderer` GitHub release v0.1.0.
+The renderer package comes from the `3gix-renderer` GitHub release v0.1.1.
 
 ## Log
 
 - 2026-11-23: design, rules, and briefs written; renderer release v0.1.0 published.
 - 2026-11-23: tasks posted held: S1 856, E1 857, E2 858, E3 859, E4 860, E5 861, E6 862. S1 and E1 released together.
+- 2026-11-23: S1 (856) verified: `npm run ci` ok on the Mac (7 tests), no infrastructure ids. Needs Node 22.12 or later (Vite 8); the 3GIX toolchain's 22.11 skips the native bundler builds.
+- 2026-11-23: E1 (857) verified in headless Chrome with WebGPU against the local hub, alone and inside the shell (Module Federation works, the view starts over Missoula at local noon). Two renderer bugs found and fixed in the renderer (2ee85ef, release v0.1.1): the web build could not create a renderer after another was destroyed (one winit event loop per page, so strict mode and remounts failed), and a pending `placeOver` was left in space by `setTime`. This repo now depends on v0.1.1.
