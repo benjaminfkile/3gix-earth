@@ -94,6 +94,10 @@ describe("EarthApp", () => {
     expect(noon).toBeLessThanOrEqual(NOW);
     // 23 November 2026 at about 113.994 W: solar noon near 19:22 UTC.
     expect(Math.abs(noon - Date.UTC(2026, 10, 23, 19, 22))).toBeLessThan(3 * 60_000);
+    // The clock first: a free camera placed before a time change is left in space.
+    expect(mock.renderer.setTime.mock.invocationCallOrder[0]).toBeLessThan(
+      mock.renderer.setCamera.mock.invocationCallOrder[0],
+    );
   });
 
   it("starts where the address bar says", async () => {

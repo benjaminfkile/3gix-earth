@@ -39,10 +39,15 @@ export function startPlace(search: string = window.location.search): Place {
   return placeFromSearch(search) ?? DEFAULT_START;
 }
 
-/** Places the camera at a place (facing its heading and tilt) and sets the clock to the latest local solar noon there. */
+/**
+ * Sets the clock to the latest local solar noon at a place, then places the
+ * camera there (facing its heading and tilt). The clock goes first: a camera
+ * placed with `setCamera` is free, and a later time change leaves it where it
+ * is in space while Earth moves on along its orbit.
+ */
 export function startView(renderer: Renderer, place: Place = startPlace(), nowMs: number = Date.now()): void {
-  renderer.setCamera(poseOf(renderer, place, renderer.getCamera().speed));
   renderer.setTime(latestSolarNoon(place.lon, nowMs));
+  renderer.setCamera(poseOf(renderer, place, renderer.getCamera().speed));
 }
 
 export default function EarthApp() {
