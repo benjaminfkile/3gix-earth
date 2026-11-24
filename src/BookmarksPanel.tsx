@@ -2,8 +2,9 @@
 // with a name, list, go to, rename, delete. Storage is in `bookmarks.ts`.
 
 import { useState } from "react";
-import { Box, Button, IconButton, List, ListItem, ListItemButton, ListItemText, Popover, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, IconButton, List, ListItem, ListItemButton, ListItemText, Stack, TextField, Typography } from "@mui/material";
 import type { Bookmark } from "./bookmarks";
+import { PanelButton, inset } from "./controls";
 
 export interface BookmarksProps {
   list: readonly Bookmark[];
@@ -13,8 +14,16 @@ export interface BookmarksProps {
   onDelete: (id: string) => void;
 }
 
-export function BookmarksPanel({ list, onSave, onGo, onRename, onDelete }: BookmarksProps) {
-  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+export function BookmarksPanel(props: BookmarksProps) {
+  return (
+    <PanelButton label="Bookmarks" sx={{ left: inset.left(8), top: inset.top(60) }}>
+      <BookmarksBody {...props} />
+    </PanelButton>
+  );
+}
+
+/** The bookmarks list and form; a go closes the popover around it (`data-closes`). */
+export function BookmarksBody({ list, onSave, onGo, onRename, onDelete }: BookmarksProps) {
   const [name, setName] = useState("");
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
   const save = () => {
@@ -22,12 +31,7 @@ export function BookmarksPanel({ list, onSave, onGo, onRename, onDelete }: Bookm
     setName("");
   };
   return (
-    <>
-      <Button variant="contained" color="inherit" size="small" onClick={(e) => setAnchor(e.currentTarget)} sx={{ position: "absolute", left: 8, top: 56 }}>
-        Bookmarks
-      </Button>
-      <Popover open={anchor !== null} anchorEl={anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "left" }}>
-        <Box sx={{ p: 1.5, width: "min(320px, 90vw)" }}>
+        <Box>
           <Stack direction="row" spacing={1} component="form" onSubmit={(e) => (e.preventDefault(), save())}>
             <TextField size="small" fullWidth placeholder="Name this view" value={name} onChange={(e) => setName(e.target.value)} slotProps={{ htmlInput: { "aria-label": "bookmark name" } }} />
             <Button type="submit" variant="contained">
@@ -54,16 +58,16 @@ export function BookmarksPanel({ list, onSave, onGo, onRename, onDelete }: Bookm
                     disableGutters
                     secondaryAction={
                       <>
-                        <IconButton size="small" aria-label={`rename ${b.name}`} onClick={() => setEditing({ id: b.id, name: b.name })}>
+                        <IconButton aria-label={`rename ${b.name}`} onClick={() => setEditing({ id: b.id, name: b.name })}>
                           ✎
                         </IconButton>
-                        <IconButton size="small" aria-label={`delete ${b.name}`} onClick={() => onDelete(b.id)}>
+                        <IconButton aria-label={`delete ${b.name}`} onClick={() => onDelete(b.id)}>
                           ✕
                         </IconButton>
                       </>
                     }
                   >
-                    <ListItemButton onClick={() => (onGo(b), setAnchor(null))} sx={{ pr: 10 }}>
+                    <ListItemButton data-closes onClick={() => onGo(b)} sx={{ pr: 12 }}>
                       <ListItemText primary={b.name} />
                     </ListItemButton>
                   </ListItem>
@@ -72,7 +76,5 @@ export function BookmarksPanel({ list, onSave, onGo, onRename, onDelete }: Bookm
             </List>
           )}
         </Box>
-      </Popover>
-    </>
   );
 }

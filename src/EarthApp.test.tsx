@@ -7,6 +7,7 @@ import { latestSolarNoon } from "./geo/solar";
 import { deg, fromPosition, rad, toPosition } from "./geo/wgs84";
 import { headingTilt, orientationFrom, type Quat } from "./geo/enu";
 import { framing } from "./flight";
+import { instantAt } from "./time";
 
 // The package's Renderer and GxRenderer are mocked: no GPU, no hub.
 const mock = vi.hoisted(() => ({
@@ -20,6 +21,15 @@ const mock = vi.hoisted(() => ({
     frames: vi.fn(() => []),
     getFov: vi.fn(() => 50),
     setTime: vi.fn(),
+    setTimeScale: vi.fn(),
+    getTime: vi.fn(() => ({ utcMs: Date.UTC(2026, 10, 23, 19, 36), originUtcMs: 0, nowUtcMs: Date.UTC(2026, 10, 23, 22, 0), timeScale: 1 })),
+    layers: vi.fn(() => [
+      { id: "terrain", overlay: false, exclusive: false, shown: true },
+      { id: "labels", overlay: true, exclusive: false, shown: false },
+    ]),
+    setShown: vi.fn(),
+    getComputeBudget: vi.fn(() => 6),
+    setComputeBudget: vi.fn(),
     setControls: vi.fn(),
     setHud: vi.fn(),
     setFlightInput: vi.fn(),
@@ -303,5 +313,83 @@ describe("EarthApp", () => {
     expect(deg(stored[0].place.heading)).toBeCloseTo(90, 9);
     fireEvent.click(screen.getByText("Spot"));
     expect(flights.fly).toHaveBeenCalledWith(mock.renderer, stored[0].place);
+  });
+
+  it("sets the time from the slider at the camera's longitude, plays, pauses, and goes to now", async () => {
+    serveConfig({ apiKey: "key", spaceId: "space", buildId: "", mapsKey: "" });
+    render(<EarthApp />);
+    await screen.findByTestId("gx");
+    act(() => mock.props?.onReady?.(mock.renderer as never));
+    fireEvent.click(screen.getByRole("button", { name: "Time" }));
+    mock.renderer.setTime.mockClear();
+    fireEvent.change(screen.getByLabelText("time of day"), { target: { value: 12 * 3600 } });
+    const drawn = mock.renderer.getTime().utcMs;
+    expect(mock.renderer.setTime).toHaveBeenCalledWith(instantAt(DEFAULT_START.lon, drawn, 12 * 3600));
+    // Local mean noon at 113.994 W is 7.5996 h after 12:00 UTC.
+    expect(mock.renderer.setTime.mock.calls[0][0]).toBeCloseTo(Date.UTC(2026, 10, 23, 12) + (113.994 / 360) * 86_400_000, 0);
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    expect(mock.renderer.setTimeScale).toHaveBeenLastCalledWith(0);
+    fireEvent.click(screen.getByRole("button", { name: "3600x" }));
+    fireEvent.click(screen.getByRole("button", { name: "Now" }));
+    expect(mock.renderer.setTime).toHaveBeenLastCalledWith(NOW);
+  });
+
+  it("shows each layer with a switch that calls setShown, and the compute budget", async () => {
+    serveConfig({ apiKey: "key", spaceId: "space", buildId: "", mapsKey: "" });
+    render(<EarthApp />);
+    await screen.findByTestId("gx");
+    act(() => mock.props?.onReady?.(mock.renderer as never));
+    fireEvent.click(screen.getByRole("button", { name: "Layers" }));
+    const terrain = screen.getByRole("switch", { name: "terrain" }) as HTMLInputElement;
+    expect(terrain.checked).toBe(true);
+    fireEvent.click(terrain);
+    expect(mock.renderer.setShown).toHaveBeenCalledWith("terrain", false);
+    fireEvent.click(screen.getByRole("switch", { name: "labels (overlay)" }));
+    expect(mock.renderer.setShown).toHaveBeenCalledWith("labels", true);
+    expect(screen.getByText(/Compute budget: 6 of 6 workers/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Compute budget/), { target: { value: 0 } });
+    expect(mock.renderer.setComputeBudget).toHaveBeenCalledWith(0);
+  });
+
+  it("switches the layout at 600 px: floating panels above, one bottom sheet below", async () => {
+    const at = (width: number) =>
+      vi.stubGlobal("matchMedia", (query: string) => {
+        const max = /max-width:\s*([\d.]+)px/.exec(query);
+        return {
+          matches: max ? width <= Number(max[1]) : false,
+          media: query,
+          onchange: null,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          addListener: () => {},
+          removeListener: () => {},
+          dispatchEvent: () => false,
+        };
+      });
+    serveConfig({ apiKey: "key", spaceId: "space", buildId: "", mapsKey: "" });
+    at(600);
+    const wide = render(<EarthApp />);
+    await screen.findByTestId("gx");
+    act(() => mock.props?.onReady?.(mock.renderer as never));
+    expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Layers" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "open panels" })).toBeNull();
+    wide.unmount();
+
+    at(599);
+    render(<EarthApp />);
+    await screen.findByTestId("gx");
+    act(() => mock.props?.onReady?.(mock.renderer as never));
+    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Bookmarks" })).toBeNull();
+    // Search, compass, and the mode toggle stay on screen.
+    expect(screen.getByLabelText("search places")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "north up" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Fly" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "open panels" }));
+    for (const tab of ["Time", "Layers", "Bookmarks", "Settings"]) expect(screen.getByRole("tab", { name: tab })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Layers" }));
+    fireEvent.click(screen.getByRole("switch", { name: "terrain" }));
+    expect(mock.renderer.setShown).toHaveBeenCalledWith("terrain", false);
   });
 });
