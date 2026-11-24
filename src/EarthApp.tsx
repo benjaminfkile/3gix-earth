@@ -3,7 +3,7 @@
 // compass, inspect, address bar, and debug panel (sections 5 to 7).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Box, CircularProgress, CssBaseline, Snackbar, ThemeProvider, createTheme } from "@mui/material";
+import { Alert, Box, CircularProgress, CssBaseline, Snackbar, ThemeProvider, createTheme, useMediaQuery } from "@mui/material";
 import { GxRenderer, type Connection, type Hit, type Pose, type Renderer } from "3gix-renderer";
 import { hubBase, loadConfig, missingVariables, type EarthConfig } from "./config";
 import { DEFAULT_START, EARTH_FRAME, RIDE } from "./earth";
@@ -14,6 +14,9 @@ import { Compass, ReadoutPanel, Settings, type SettingsState } from "./controls"
 import { DebugPanel } from "./DebugPanel";
 import { NavController } from "./nav/controller";
 import { attachInput } from "./nav/input";
+import { FlyController, attachFly } from "./nav/fly";
+import { BoostButton, Joystick, ModeToggle } from "./flyControls";
+import { loadMode, saveMode, type NavMode } from "./mode";
 import {
   debugFromSearch,
   debugView,
@@ -62,6 +65,15 @@ export default function EarthApp() {
   const rendererRef = useRef<Renderer | null>(null);
   const [renderer, setRenderer] = useState<Renderer | null>(null);
   const navRef = useRef<NavController | null>(null);
+  const flyRef = useRef<FlyController | null>(null);
+  const [mode, setModeState] = useState<NavMode>(() => loadMode());
+  const setMode = useCallback((m: NavMode) => {
+    setModeState(m);
+    saveMode(m);
+  }, []);
+  // The touch controls: on touch devices or narrow screens, in Fly mode.
+  const coarse = useMediaQuery("(pointer: coarse)");
+  const narrow = useMediaQuery("(max-width: 599.95px)");
   const viewRef = useRef<HTMLDivElement | null>(null);
   const checkedFrames = useRef(false);
   const debugOn = useRef(settings.debug);
@@ -119,11 +131,23 @@ export default function EarthApp() {
     setRenderer(renderer);
   }, []);
 
-  // Earth mode navigation (section 4): pointer input on the view, the
-  // controller owning the camera.
+  // Navigation (section 4): in Earth mode pointer input on the view and the
+  // controller owning the camera; in Fly mode keys, look, and the touch
+  // controls through the flight input. Switching never moves the camera:
+  // the old mode's cleanup only lets go of its input.
   useEffect(() => {
     const el = viewRef.current;
     if (!renderer || !el) return;
+    if (mode === "fly") {
+      const fly = new FlyController(renderer);
+      flyRef.current = fly;
+      const detach = attachFly(el, fly);
+      return () => {
+        detach();
+        fly.dispose();
+        flyRef.current = null;
+      };
+    }
     const nav = new NavController(renderer, { size: () => ({ width: el.clientWidth, height: el.clientHeight }) });
     navRef.current = nav;
     const detach = attachInput(el, nav);
@@ -132,7 +156,7 @@ export default function EarthApp() {
       nav.dispose();
       navRef.current = null;
     };
-  }, [renderer]);
+  }, [renderer, mode]);
 
   // The readout also refreshes when tiles arrive under a still camera.
   const refreshReadout = useCallback(() => {
@@ -155,6 +179,7 @@ export default function EarthApp() {
         }
       }
       navRef.current?.onCamera(pose);
+      flyRef.current?.onCamera(pose);
       throttles.readout.push(pose);
       throttles.url.push(pose);
       throttles.debug.push(pose);
@@ -225,6 +250,13 @@ export default function EarthApp() {
         {readout && <ReadoutPanel readout={readout} onCopy={copy} />}
         <Compass heading={readout?.heading ?? 0} onNorthUp={() => turn((_, t) => [0, t])} onStraightDown={() => turn((h) => [h, Math.PI / 2])} />
         <Settings value={settings} onChange={setSettings} />
+        <ModeToggle mode={mode} onChange={setMode} />
+        {mode === "fly" && renderer && (coarse || narrow) && (
+          <>
+            <Joystick onStick={(s) => flyRef.current?.setStick(s)} />
+            <BoostButton onBoost={(on) => flyRef.current?.setBoost(on)} />
+          </>
+        )}
         {settings.debug && <DebugPanel mapsKey={config.mapsKey} view={debug} onGo={goTo} />}
         <Snackbar open={message !== null} autoHideDuration={6000} onClose={() => setMessage(null)} message={message ?? ""} anchorOrigin={{ vertical: "top", horizontal: "center" }} />
       </>
