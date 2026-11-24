@@ -1,17 +1,21 @@
 // The exposed module `./EarthApp`: the renderer filling its parent, with
 // this app owning all input (design sections 1 and 3), the readout,
-// compass, inspect, search, bookmarks, address bar, and debug panel
-// (sections 5 to 7).
+// compass, inspect, search, time, layers, bookmarks, settings, address bar,
+// and debug panel (sections 5 to 7). Below 600 px wide the panels move into
+// one bottom sheet; search, compass, and the mode toggle stay on screen.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Alert, Box, CircularProgress, CssBaseline, Snackbar, ThemeProvider, createTheme, useMediaQuery } from "@mui/material";
-import { GxRenderer, type Connection, type Hit, type Pose, type Renderer } from "3gix-renderer";
+import { GxRenderer, type Connection, type Hit, type LayerInfo, type Pose, type Renderer, type TimeState } from "3gix-renderer";
 import { hubBase, loadConfig, missingVariables, type EarthConfig } from "./config";
 import { DEFAULT_START, EARTH_FRAME, RIDE } from "./earth";
 import { fromPosition } from "./geo/wgs84";
 import { latestSolarNoon } from "./geo/solar";
 import { headingTilt, wgs84Mismatch, type Quat } from "./geo/enu";
-import { Compass, ReadoutPanel, Settings, type SettingsState } from "./controls";
+import { Compass, PanelButton, ReadoutBody, ReadoutPanel, Settings, SettingsBody, inset, type SettingsState } from "./controls";
+import { LayersBody, TimeBody } from "./panels";
+import { BottomSheet, type SheetTab } from "./Sheet";
+import { BookmarksBody } from "./BookmarksPanel";
 import { APIProvider } from "@vis.gl/react-google-maps";
 import { DebugPanel } from "./DebugPanel";
 import { PlaceSearch, SearchBox, type FoundPlace } from "./search";
@@ -41,7 +45,29 @@ import {
 } from "./view";
 import { rad } from "./geo/wgs84";
 
-const theme = createTheme({ palette: { mode: "dark" } });
+/** The narrow layout's media query (design section 5): below 600 px wide. */
+export const NARROW = "(max-width: 599.95px)";
+
+// Every control at least 44 px for touch (MUI's small sizes are smaller),
+// and a visible ring on keyboard focus.
+const TOUCH = { minHeight: 44, minWidth: 44 };
+const FOCUS = { "&.Mui-focusVisible": { outline: "2px solid #90caf9", outlineOffset: 2 } };
+const theme = createTheme({
+  palette: { mode: "dark" },
+  components: {
+    MuiButton: { styleOverrides: { root: { ...TOUCH, ...FOCUS } } },
+    MuiIconButton: { styleOverrides: { root: { ...TOUCH, ...FOCUS } } },
+    MuiToggleButton: { styleOverrides: { root: { ...TOUCH, ...FOCUS } } },
+    MuiTab: { styleOverrides: { root: { ...TOUCH, ...FOCUS } } },
+    MuiListItemButton: { styleOverrides: { root: { minHeight: 44, ...FOCUS } } },
+    MuiButtonBase: { styleOverrides: { root: FOCUS } },
+    MuiFormControlLabel: { styleOverrides: { root: { minHeight: 44 } } },
+    MuiSlider: { styleOverrides: { root: { paddingTop: 20, paddingBottom: 20 }, thumb: { "&.Mui-focusVisible": { outline: "2px solid #90caf9" } } } },
+  },
+});
+
+/** How often the time and layers controls read the renderer, milliseconds. */
+const POLL_MS = 250;
 
 type Loaded = { state: "loading" } | { state: "failed"; message: string } | { state: "ready"; config: EarthConfig };
 
@@ -79,7 +105,11 @@ export default function EarthApp() {
   }, []);
   // The touch controls: on touch devices or narrow screens, in Fly mode.
   const coarse = useMediaQuery("(pointer: coarse)");
-  const narrow = useMediaQuery("(max-width: 599.95px)");
+  const narrow = useMediaQuery(NARROW);
+  const [time, setTimeState] = useState<TimeState | null>(null);
+  const [speed, setSpeed] = useState(60);
+  const [layers, setLayers] = useState<LayerInfo[]>([]);
+  const [budget, setBudget] = useState({ value: 0, max: 0 });
   const viewRef = useRef<HTMLDivElement | null>(null);
   const checkedFrames = useRef(false);
   const stopFlight = useRef<(() => void) | null>(null);
@@ -143,7 +173,54 @@ export default function EarthApp() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
+    try {
+      const max = renderer.getComputeBudget();
+      setBudget({ value: max, max });
+      setLayers(renderer.layers());
+      setTimeState(renderer.getTime());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
     setRenderer(renderer);
+  }, []);
+
+  // The clock moves on its own while playing: the time control reads it.
+  useEffect(() => {
+    if (!renderer) return;
+    const id = setInterval(() => setTimeState(renderer.getTime()), POLL_MS);
+    return () => clearInterval(id);
+  }, [renderer]);
+
+  const setTime = useCallback((utcMs: number) => {
+    const r = rendererRef.current;
+    if (!r) return;
+    r.setTime(utcMs);
+    setTimeState(r.getTime());
+  }, []);
+  const setScale = useCallback((scale: number) => {
+    const r = rendererRef.current;
+    if (!r) return;
+    r.setTimeScale(scale);
+    setTimeState(r.getTime());
+  }, []);
+  const setNow = useCallback(() => {
+    const r = rendererRef.current;
+    if (!r) return;
+    r.setTime(r.getTime().nowUtcMs);
+    setTimeState(r.getTime());
+  }, []);
+  const setShown = useCallback((id: string, shown: boolean) => {
+    const r = rendererRef.current;
+    if (!r) return;
+    r.setShown(id, shown);
+    // An exclusive layer hides others: read back what is applied.
+    setLayers(r.layers());
+  }, []);
+  const setComputeBudget = useCallback((workers: number) => {
+    const r = rendererRef.current;
+    if (!r) return;
+    r.setComputeBudget(workers);
+    setBudget((b) => ({ ...b, value: r.getComputeBudget() }));
   }, []);
 
   // Navigation (section 4): in Earth mode pointer input on the view and the
@@ -302,13 +379,29 @@ export default function EarthApp() {
       </Alert>
     );
   } else if (connection && config) {
-    const overlay = (
-      <>
-        <PlaceSearch onPlace={onPlace} />
-        {settings.debug && <DebugPanel mapsKey={config.mapsKey} view={debug} onGo={goTo} />}
-      </>
+    const maps = (node: ReactNode) => (config.mapsKey !== "" ? <APIProvider apiKey={config.mapsKey}>{node}</APIProvider> : node);
+    const debugPanel = (inline: boolean) => settings.debug && <DebugPanel mapsKey={config.mapsKey} view={debug} onGo={goTo} inline={inline} />;
+    const timeBody = time && (
+      <TimeBody time={time} lon={readout?.lon ?? startPlace().lon} speed={speed} onTime={setTime} onScale={setScale} onSpeed={setSpeed} onNow={setNow} />
     );
-    body = (
+    const layersBody = <LayersBody layers={layers} onShown={setShown} budget={budget.value} maxBudget={budget.max} onBudget={setComputeBudget} />;
+    const settingsProps = { value: settings, onChange: setSettings, mode, onMode: setMode };
+    const bookmarksProps = {
+      list: bookmarks,
+      onSave: saveView,
+      onGo: (b: Bookmark) => flyTo(b.place),
+      onRename: (id: string, name: string) => setBookmarks((l) => renameBookmark(l, id, name)),
+      onDelete: (id: string) => setBookmarks((l) => removeBookmark(l, id)),
+    };
+    const sheetTabs: SheetTab[] = [
+      ...(readout ? [{ label: "Readout", body: <ReadoutBody readout={readout} onCopy={copy} /> }] : []),
+      ...(timeBody ? [{ label: "Time", body: timeBody }] : []),
+      { label: "Layers", body: layersBody },
+      { label: "Bookmarks", body: <BookmarksBody {...bookmarksProps} /> },
+      { label: "Settings", body: <SettingsBody {...settingsProps} /> },
+      ...(settings.debug ? [{ label: "Debug", body: debugPanel(true) }] : []),
+    ];
+    body = maps(
       <>
         <GxRenderer
           connection={connection}
@@ -322,9 +415,7 @@ export default function EarthApp() {
           onStats={refreshReadout}
           style={{ display: "block", width: "100%", height: "100%" }}
         />
-        {readout && <ReadoutPanel readout={readout} onCopy={copy} />}
         <Compass heading={readout?.heading ?? 0} onNorthUp={() => turn((_, t) => [0, t])} onStraightDown={() => turn((h) => [h, Math.PI / 2])} />
-        <Settings value={settings} onChange={setSettings} />
         <ModeToggle mode={mode} onChange={setMode} />
         {mode === "fly" && renderer && (coarse || narrow) && (
           <>
@@ -332,23 +423,36 @@ export default function EarthApp() {
             <BoostButton onBoost={(on) => flyRef.current?.setBoost(on)} />
           </>
         )}
-        {config.mapsKey !== "" ? (
-          <APIProvider apiKey={config.mapsKey}>{overlay}</APIProvider>
+        {config.mapsKey !== "" ? <PlaceSearch onPlace={onPlace} /> : <SearchBox api={null} onPlace={onPlace} />}
+        {narrow ? (
+          <BottomSheet tabs={sheetTabs} />
         ) : (
           <>
-            <SearchBox api={null} onPlace={onPlace} />
-            {settings.debug && <DebugPanel mapsKey="" view={debug} onGo={goTo} />}
+            {readout && <ReadoutPanel readout={readout} onCopy={copy} />}
+            <Settings {...settingsProps} />
+            <BookmarksPanel {...bookmarksProps} />
+            {timeBody && (
+              <PanelButton label="Time" sx={{ left: inset.left(8), top: inset.top(112) }}>
+                {timeBody}
+              </PanelButton>
+            )}
+            <PanelButton label="Layers" sx={{ left: inset.left(8), top: inset.top(164) }}>
+              {layersBody}
+            </PanelButton>
+            {debugPanel(false)}
           </>
         )}
-        <BookmarksPanel
-          list={bookmarks}
-          onSave={saveView}
-          onGo={(b) => flyTo(b.place)}
-          onRename={(id, name) => setBookmarks((l) => renameBookmark(l, id, name))}
-          onDelete={(id) => setBookmarks((l) => removeBookmark(l, id))}
+        {/* The inspect message covers no control: above the readout on wide
+            screens, above the sheet's handle on narrow ones. */}
+        <Snackbar
+          open={message !== null}
+          autoHideDuration={6000}
+          onClose={() => setMessage(null)}
+          message={message ?? ""}
+          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+          sx={{ bottom: { xs: inset.bottom(64), sm: inset.bottom(132) } }}
         />
-        <Snackbar open={message !== null} autoHideDuration={6000} onClose={() => setMessage(null)} message={message ?? ""} anchorOrigin={{ vertical: "top", horizontal: "center" }} />
-      </>
+      </>,
     );
   }
 

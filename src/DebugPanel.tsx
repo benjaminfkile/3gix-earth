@@ -28,7 +28,8 @@ function HeadingArrow({ heading }: { heading: number }) {
   );
 }
 
-export function DebugPanel({ mapsKey, view, onGo }: { mapsKey: string; view: DebugView | null; onGo: (at: LatLng) => void }) {
+export function DebugPanel({ mapsKey, view, onGo, inline = false }: { mapsKey: string; view: DebugView | null; onGo: (at: LatLng) => void; inline?: boolean }) {
+  const panelSx = inline ? inlineSx : floatingSx;
   const [mapType, setMapType] = useState<MapType>("satellite");
   if (mapsKey === "") {
     return (
@@ -87,7 +88,10 @@ export function DebugPanel({ mapsKey, view, onGo }: { mapsKey: string; view: Deb
   );
 }
 
-const panelSx = {
+/** In the bottom sheet (narrow screens). */
+const inlineSx = { height: "55vh", display: "flex", flexDirection: "column", gap: 1, overflow: "hidden" } as const;
+
+const floatingSx = {
   position: "absolute",
   // Below the toolbar (Settings at the top right) so every control stays reachable.
   top: 56,

@@ -6,6 +6,7 @@ import { Box, Button, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import type { NavMode } from "./mode";
 import { stickVector, type Stick } from "./nav/fly";
+import { inset } from "./controls";
 
 export function ModeToggle({ mode, onChange }: { mode: NavMode; onChange: (m: NavMode) => void }) {
   return (
@@ -15,7 +16,7 @@ export function ModeToggle({ mode, onChange }: { mode: NavMode; onChange: (m: Na
       value={mode}
       onChange={(_, m: NavMode | null) => m && onChange(m)}
       aria-label="navigation mode"
-      sx={{ position: "absolute", left: 8, top: 8, bgcolor: "background.paper" }}
+      sx={{ position: "absolute", left: inset.left(8), top: inset.top(8), bgcolor: "background.paper" }}
     >
       <ToggleButton value="earth">Earth</ToggleButton>
       <ToggleButton value="fly">Fly</ToggleButton>
@@ -29,9 +30,9 @@ const KNOB = 44;
 
 const Base = styled(Box)(({ theme }) => ({
   position: "absolute",
-  left: 24,
-  // Above the readout, which also sits at the lower left.
-  bottom: 132,
+  left: inset.left(24),
+  // Above the readout (wide) or the closed bottom sheet (narrow).
+  bottom: inset.bottom(132),
   width: RADIUS * 2,
   height: RADIUS * 2,
   borderRadius: "50%",
@@ -99,7 +100,7 @@ export function BoostButton({ onBoost }: { onBoost: (on: boolean) => void }) {
       onPointerUp={() => onBoost(false)}
       onPointerCancel={() => onBoost(false)}
       onPointerLeave={() => onBoost(false)}
-      sx={{ position: "absolute", right: 24, bottom: 40, borderRadius: "50%", width: 72, height: 72, minWidth: 0, touchAction: "none" }}
+      sx={{ position: "absolute", right: inset.right(24), bottom: inset.bottom(80), borderRadius: "50%", width: 72, height: 72, minWidth: 0, touchAction: "none" }}
     >
       Boost
     </Button>
