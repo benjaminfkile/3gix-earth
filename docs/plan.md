@@ -14,7 +14,7 @@ Contract: `docs/design.md` here and `3gix-shell/docs/design.md`. Rules for every
 | E5 search, bookmarks (861) | 3gix-earth | `briefs/E5.md` | E4 |
 | E6 time, layers, phones (862) | 3gix-earth | `briefs/E6.md` | E5 |
 
-The renderer package comes from the `3gix-renderer` GitHub release v0.1.1.
+The renderer package comes from the `3gix-renderer` GitHub release v0.1.2.
 
 ## Log
 
@@ -23,3 +23,4 @@ The renderer package comes from the `3gix-renderer` GitHub release v0.1.1.
 - 2026-11-23: S1 (856) verified: `npm run ci` ok on the Mac (7 tests), no infrastructure ids. Needs Node 22.12 or later (Vite 8); the 3GIX toolchain's 22.11 skips the native bundler builds.
 - 2026-11-23: E1 (857) verified in headless Chrome with WebGPU against the local hub, alone and inside the shell (Module Federation works, the view starts over Missoula at local noon). Two renderer bugs found and fixed in the renderer (2ee85ef, release v0.1.1): the web build could not create a renderer after another was destroyed (one winit event loop per page, so strict mode and remounts failed), and a pending `placeOver` was left in space by `setTime`. This repo now depends on v0.1.1.
 - 2026-11-23: E2 (858) done: `npm run ci` ok on the Mac (71 tests). Fixed in session: the start set the camera before the clock, so the later time change left the free camera in space (now clock first, with a test). Open: `setCamera` always frees the camera, so it does not ride with Earth (it drifts with Earth's spin and orbit); the API has no item for a camera that moves with its frame. Waiting on Ben before E3.
+- 2026-11-23: Ben approved a renderer API item: `setCamera(pose, { ride })` (renderer 4a8f9f2, release v0.1.2). Every placement here now rides with Earth. Verified in headless Chrome inside the shell: the camera stays over Missoula at 20.0 km facing north; the debug panel shows Google's top-down satellite map with the markers and line, and the 3D view matches the renderer's terrain. E2 follow-ups (readout refresh, panel over Settings, deprecated markers, heading arrow) added to E3 as item 0.

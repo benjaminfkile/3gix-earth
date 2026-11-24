@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Box, CircularProgress, CssBaseline, Snackbar, ThemeProvider, createTheme } from "@mui/material";
 import { GxRenderer, type Connection, type Hit, type Pose, type Renderer } from "3gix-renderer";
 import { hubBase, loadConfig, missingVariables, type EarthConfig } from "./config";
-import { DEFAULT_START, EARTH_FRAME } from "./earth";
+import { DEFAULT_START, EARTH_FRAME, RIDE } from "./earth";
 import { fromPosition } from "./geo/wgs84";
 import { latestSolarNoon } from "./geo/solar";
 import { headingTilt, wgs84Mismatch, type Quat } from "./geo/enu";
@@ -47,7 +47,7 @@ export function startPlace(search: string = window.location.search): Place {
  */
 export function startView(renderer: Renderer, place: Place = startPlace(), nowMs: number = Date.now()): void {
   renderer.setTime(latestSolarNoon(place.lon, nowMs));
-  renderer.setCamera(poseOf(renderer, place, renderer.getCamera().speed));
+  renderer.setCamera(poseOf(renderer, place, renderer.getCamera().speed), RIDE);
 }
 
 export default function EarthApp() {
@@ -149,7 +149,7 @@ export default function EarthApp() {
     const pose = r.getCamera();
     const { heading, tilt } = headingTilt(pose.position, pose.orientation as Quat);
     const [h, t] = fn(heading, tilt);
-    r.setCamera(turned(pose, h, t));
+    r.setCamera(turned(pose, h, t), RIDE);
   }, []);
 
   const goTo = useCallback((at: LatLng) => {
@@ -157,7 +157,7 @@ export default function EarthApp() {
     if (!r) return;
     const pose = r.getCamera();
     const now = readoutOf(r, pose);
-    r.setCamera(poseOf(r, { ...now, lat: rad(at.lat), lon: rad(at.lng) }, pose.speed));
+    r.setCamera(poseOf(r, { ...now, lat: rad(at.lat), lon: rad(at.lng) }, pose.speed), RIDE);
   }, []);
 
   const copy = useCallback((text: string) => {

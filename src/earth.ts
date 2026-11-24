@@ -18,3 +18,10 @@ export const DEFAULT_START = {
   /** Radians below level. */
   tilt: rad(45),
 };
+
+/**
+ * Every camera placement rides with Earth (`setCamera(pose, { ride: true })`):
+ * the camera keeps its place in Earth's axes while Earth spins and moves
+ * along its orbit. A free camera would stay put in space and drift off.
+ */
+export const RIDE = { ride: true } as const;

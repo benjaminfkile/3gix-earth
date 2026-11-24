@@ -42,7 +42,7 @@ Nothing that names a machine, an address, or a key is committed. The dev server 
 
 ## 4. Moving around
 
-The camera never moves by itself in the renderer. This app moves it with `setCamera` and `setFlightInput`, and may animate it (for example a flight to a search result).
+The camera never moves by itself in the renderer. This app moves it with `setCamera` and `setFlightInput`, and may animate it (for example a flight to a search result). Every placement uses `setCamera(pose, { ride: true })`, so the camera keeps its place in Earth's axes while Earth spins and moves along its orbit; a free camera would stay put in space and drift off.
 
 Common to both modes:
 - **Ground clearance.** The camera never goes below the ground plus 2 m. The ground under the camera comes from `surfaceHeight(4, direction)`; when no tile is loaded, the reference ellipsoid is the ground.
