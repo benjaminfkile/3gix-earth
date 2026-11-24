@@ -181,4 +181,16 @@ describe("EarthApp", () => {
     act(() => mock.props?.onError?.("WebGPU is not available"));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("WebGPU is not available"));
   });
+
+  it("refreshes the ground elevation when tiles arrive under a still camera", async () => {
+    serveConfig({ apiKey: "key", spaceId: "space", buildId: "", mapsKey: "" });
+    render(<EarthApp />);
+    await screen.findByTestId("gx");
+    act(() => mock.props?.onReady?.(mock.renderer as never));
+    mock.renderer.surfaceHeight.mockReturnValue({ height: 980, level: 12, finer: false } as never);
+    act(() => mock.props?.onSettled?.({ seconds: 1 }));
+    const readout = await screen.findByLabelText("readout");
+    expect(readout.textContent).toContain("Ground elevation (above ellipsoid) 980 m");
+    mock.renderer.surfaceHeight.mockReturnValue(null);
+  });
 });

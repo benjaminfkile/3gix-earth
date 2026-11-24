@@ -12,6 +12,8 @@ import { latestSolarNoon } from "./geo/solar";
 import { headingTilt, wgs84Mismatch, type Quat } from "./geo/enu";
 import { Compass, ReadoutPanel, Settings, type SettingsState } from "./controls";
 import { DebugPanel } from "./DebugPanel";
+import { NavController } from "./nav/controller";
+import { attachInput } from "./nav/input";
 import {
   debugFromSearch,
   debugView,
@@ -58,6 +60,8 @@ export default function EarthApp() {
   const [debug, setDebug] = useState<DebugView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const rendererRef = useRef<Renderer | null>(null);
+  const [renderer, setRenderer] = useState<Renderer | null>(null);
+  const navRef = useRef<NavController | null>(null);
   const viewRef = useRef<HTMLDivElement | null>(null);
   const checkedFrames = useRef(false);
   const debugOn = useRef(settings.debug);
@@ -112,7 +116,31 @@ export default function EarthApp() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
+    setRenderer(renderer);
   }, []);
+
+  // Earth mode navigation (section 4): pointer input on the view, the
+  // controller owning the camera.
+  useEffect(() => {
+    const el = viewRef.current;
+    if (!renderer || !el) return;
+    const nav = new NavController(renderer, { size: () => ({ width: el.clientWidth, height: el.clientHeight }) });
+    navRef.current = nav;
+    const detach = attachInput(el, nav);
+    return () => {
+      detach();
+      nav.dispose();
+      navRef.current = null;
+    };
+  }, [renderer]);
+
+  // The readout also refreshes when tiles arrive under a still camera.
+  const refreshReadout = useCallback(() => {
+    const r = rendererRef.current;
+    if (!r) return;
+    const pose = r.getCamera();
+    if (pose.frameId === EARTH_FRAME) throttles.readout.push(pose);
+  }, [throttles]);
 
   const onCamera = useCallback(
     (pose: Pose) => {
@@ -126,6 +154,7 @@ export default function EarthApp() {
           if (m) console.warn(m);
         }
       }
+      navRef.current?.onCamera(pose);
       throttles.readout.push(pose);
       throttles.url.push(pose);
       throttles.debug.push(pose);
@@ -189,6 +218,8 @@ export default function EarthApp() {
           onError={setError}
           onCamera={onCamera}
           onHit={onHit}
+          onSettled={refreshReadout}
+          onStats={refreshReadout}
           style={{ display: "block", width: "100%", height: "100%" }}
         />
         {readout && <ReadoutPanel readout={readout} onCopy={copy} />}
