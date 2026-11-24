@@ -5,6 +5,8 @@
 // is left to the renderer's `hit` event (inspect, section 5 item 3) and
 // never pans. Two such taps close together are a double click or tap.
 
+import { wheelNotches } from "./math";
+
 /** Pixels a press must move before it is a drag. */
 export const DRAG_PX = 4;
 const DOUBLE_MS = 350;
@@ -30,8 +32,8 @@ export interface Gestures {
   /** Right drag or Ctrl + left drag, pixels since the last move. */
   orbit(dx: number, dy: number): void;
   pinch(p: Pinch): void;
-  /** Wheel at a point, pixels, down (zoom out) positive. */
-  wheel(x: number, y: number, deltaY: number): void;
+  /** Wheel at a point, notches (`wheelNotches`), down (zoom out) positive. */
+  wheel(x: number, y: number, notches: number): void;
   double(x: number, y: number): void;
 }
 
@@ -163,9 +165,10 @@ export function attachInput(el: HTMLElement, g: Gestures, now: () => number = ()
     if (!onView(e.target)) return;
     e.preventDefault();
     g.press();
-    const scale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1;
+    const n = wheelNotches(e.deltaY, e.deltaMode);
+    if (n === 0) return;
     const p = local(e);
-    g.wheel(p.x, p.y, e.deltaY * scale);
+    g.wheel(p.x, p.y, n);
   };
 
   const menu = (e: Event) => {

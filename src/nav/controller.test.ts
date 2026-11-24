@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Pose } from "3gix-renderer";
-import { orientationFrom } from "../geo/enu";
+import { headingTilt, orientationFrom, type Quat } from "../geo/enu";
 import { fromPosition, rad, toPosition } from "../geo/wgs84";
 import { NavController, type NavRenderer } from "./controller";
 
@@ -52,7 +52,7 @@ describe("NavController", () => {
 
   it("no gesture puts the camera below the ground plus 2 m", () => {
     const { nav, r, frames, advance } = setup(10, 80);
-    for (let i = 0; i < 50; i++) nav.wheel(400, 450, -2000);
+    for (let i = 0; i < 50; i++) nav.wheel(400, 450, -2);
     for (let i = 0; i < 20; i++) nav.pinch({ x: 400, y: 500, factor: 0.2, twist: 0.1, dy: -40 });
     for (let i = 0; i < 20; i++) nav.orbit(30, -200);
     nav.panStart(400, 590);
@@ -90,9 +90,26 @@ describe("NavController", () => {
   it("wheel zooms toward the point under the pointer", () => {
     const { nav, pose } = setup(3000, 90);
     const before = fromPosition(pose().position).height;
-    nav.wheel(400, 300, -100);
+    nav.wheel(400, 300, -1);
     expect(fromPosition(pose().position).height).toBeLessThan(before);
-    nav.wheel(400, 300, 300);
+    nav.wheel(400, 300, 2);
     expect(fromPosition(pose().position).height).toBeGreaterThan(before);
+  });
+
+  it("zooming far out eases to straight down over the zoom target, and back to the user's tilt zooming in", () => {
+    const { nav, pose } = setup(4500, 30);
+    const start = fromPosition(pose().position);
+    for (let i = 0; i < 60; i++) nav.wheel(400, 300, 2);
+    const far = pose();
+    const g = fromPosition(far.position);
+    expect(g.height).toBeGreaterThan(1e6);
+    expect(headingTilt(far.position, far.orientation as Quat).tilt).toBeCloseTo(Math.PI / 2, 3);
+    // Still over the same part of Earth, not over the other side.
+    expect(Math.abs(g.lat - start.lat)).toBeLessThan(rad(5));
+    expect(Math.abs(g.lon - start.lon)).toBeLessThan(rad(5));
+    for (let i = 0; i < 60; i++) nav.wheel(400, 300, -2);
+    const near = pose();
+    expect(fromPosition(near.position).height).toBeLessThan(ELEVATION + 50_000);
+    expect(headingTilt(near.position, near.orientation as Quat).tilt).toBeCloseTo(rad(30), 2);
   });
 });

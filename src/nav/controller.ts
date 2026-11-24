@@ -5,19 +5,19 @@
 
 import type { Pose, Renderer, Vec3 } from "3gix-renderer";
 import { EARTH_FRAME, RIDE } from "../earth";
-import { rayEllipsoid, type Quat } from "../geo/enu";
+import { headingTilt, rayEllipsoid, type Quat } from "../geo/enu";
 import { groundUnder } from "../geo/ground";
 import { fromPosition, rad } from "../geo/wgs84";
 import type { Gestures, Pinch } from "./input";
-import { between, orbit, pan, pixelRay, raySphere, speedFor, withClearance, zoomToward } from "./math";
+import { between, orbit, pan, pixelRay, raySphere, speedFor, withClearance, zoomTilt, zoomToward } from "./math";
 
 /** What the controller needs from the renderer. */
 export type NavRenderer = Pick<Renderer, "setCamera" | "getCamera" | "raycast" | "surfaceHeight" | "getFov">;
 
 /** Radians of turn or tilt per pixel of drag. */
 const TURN_PER_PX = 0.005;
-/** Wheel: the distance to the point is multiplied by exp(deltaY times this). */
-const WHEEL_RATE = 0.0015;
+/** Wheel: the distance to the point is multiplied by exp(notches times this). */
+const WHEEL_RATE = 0.2;
 /** Double click: how far the flight goes, as the distance left over the distance before. */
 const FLY_FACTOR = 0.35;
 /** Double click flight time, seconds. */
@@ -37,6 +37,10 @@ export class NavController implements Gestures {
   private pose: Pose | null = null;
   private grab: Vec3 | null = null;
   private flight: number | null = null;
+  /** The tilt the user chose, which zoom eases away from far out and back to close in. */
+  private userTilt: number | null = null;
+  /** The tilt the last zoom left; any other tilt now means the user (or a control) changed it. */
+  private zoomLeft: number | null = null;
   private readonly frame: (fn: () => void) => number;
   private readonly cancelFrame: (id: number) => void;
   private readonly now: () => number;
@@ -116,11 +120,21 @@ export class NavController implements Gestures {
     if (!pose || factor === 1) return;
     const target = this.groundAt(x, y);
     if (!target) return;
-    this.write(zoomToward(pose, target, Math.min(5, Math.max(0.2, factor))));
+    const tilt = headingTilt(pose.position, pose.orientation as Quat).tilt;
+    if (this.userTilt === null || this.zoomLeft === null || Math.abs(tilt - this.zoomLeft) > 1e-3) this.userTilt = tilt;
+    let next = zoomToward(pose, target, Math.min(5, Math.max(0.2, factor)));
+    // Far out the view eases toward straight down around the zoom target,
+    // so the target stays under the camera instead of over the horizon.
+    const ground = groundUnder(this.r, next.position).elevation;
+    const want = zoomTilt(this.userTilt, fromPosition(next.position).height - ground);
+    if (Math.abs(want - tilt) > 1e-6) next = orbit(next, target, 0, want - tilt);
+    const out = this.write(next);
+    this.zoomLeft = headingTilt(out.position, out.orientation as Quat).tilt;
   }
 
-  wheel(x: number, y: number, deltaY: number): void {
-    this.zoomAt(x, y, Math.exp(deltaY * WHEEL_RATE));
+  /** Wheel notches (normalized by the input), down (zoom out) positive. */
+  wheel(x: number, y: number, notches: number): void {
+    this.zoomAt(x, y, Math.exp(notches * WHEEL_RATE));
   }
 
   /** Tilt and turn around the ground point at the screen center. */

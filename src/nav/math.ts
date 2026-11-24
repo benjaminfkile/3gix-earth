@@ -151,3 +151,33 @@ export function ease(t: number): number {
 export function between(a: Vec3, b: Vec3, t: number): Vec3 {
   return add(a, sub(b, a), ease(t));
 }
+
+/** Wheel pixels in one notch, and the most notches one event may count. */
+const NOTCH_PX = 100;
+const NOTCH_LINES = 3;
+export const MAX_NOTCHES = 2;
+
+/**
+ * A wheel event's `deltaY` as notches (down positive), the same on every
+ * device: pixel mode (0) counts 100 px a notch, line mode (1) 3 lines, page
+ * mode (2) one page. Capped at MAX_NOTCHES either way.
+ */
+export function wheelNotches(deltaY: number, deltaMode: number): number {
+  const n = deltaMode === 1 ? deltaY / NOTCH_LINES : deltaMode === 2 ? deltaY : deltaY / NOTCH_PX;
+  return Number.isFinite(n) ? Math.max(-MAX_NOTCHES, Math.min(MAX_NOTCHES, n)) : 0;
+}
+
+/** Below this height above the ground zoom keeps the user's tilt; by FLAT_HEIGHT it looks straight down. Meters. */
+export const TILT_HEIGHT = 50_000;
+export const FLAT_HEIGHT = 1_000_000;
+
+/**
+ * The tilt zoom leaves at a height above the ground: the user's tilt low
+ * down, easing (on a log scale of height) to straight down by FLAT_HEIGHT,
+ * like a digital globe.
+ */
+export function zoomTilt(userTilt: number, heightAboveGround: number): number {
+  const h = Math.max(1, heightAboveGround);
+  const w = ease(Math.log(h / TILT_HEIGHT) / Math.log(FLAT_HEIGHT / TILT_HEIGHT));
+  return userTilt + (MAX_TILT - userTilt) * w;
+}

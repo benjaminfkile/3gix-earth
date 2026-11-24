@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Pose, Vec3 } from "3gix-renderer";
 import { headingTilt, orientationFrom, type Quat } from "../geo/enu";
 import { fromPosition, rad, toPosition } from "../geo/wgs84";
-import { CLEARANCE, MIN_TILT, ease, orbit, pan, pixelRay, raySphere, rotationBetween, speedFor, withClearance, zoomToward } from "./math";
+import { CLEARANCE, FLAT_HEIGHT, MAX_NOTCHES, MIN_TILT, TILT_HEIGHT, ease, orbit, pan, pixelRay, raySphere, rotationBetween, speedFor, wheelNotches, withClearance, zoomTilt, zoomToward } from "./math";
 import { rotate } from "../geo/enu";
 
 const dist = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
@@ -80,5 +80,28 @@ describe("nav math", () => {
     expect(ease(1)).toBe(1);
     expect(ease(0.5)).toBeCloseTo(0.5);
     expect(ease(0.1)).toBeLessThan(0.1);
+  });
+});
+
+describe("wheelNotches", () => {
+  it("counts one notch the same in pixel, line, and page modes, capped per event", () => {
+    expect(wheelNotches(100, 0)).toBeCloseTo(1);
+    expect(wheelNotches(3, 1)).toBeCloseTo(1);
+    expect(wheelNotches(1, 2)).toBeCloseTo(1);
+    expect(wheelNotches(-4, 0)).toBeCloseTo(-0.04);
+    expect(wheelNotches(5000, 0)).toBe(MAX_NOTCHES);
+    expect(wheelNotches(-90, 1)).toBe(-MAX_NOTCHES);
+  });
+});
+
+describe("zoomTilt", () => {
+  it("keeps the user's tilt low down and looks straight down by 1000 km", () => {
+    expect(zoomTilt(rad(30), 5000)).toBeCloseTo(rad(30));
+    expect(zoomTilt(rad(30), TILT_HEIGHT)).toBeCloseTo(rad(30));
+    expect(zoomTilt(rad(30), FLAT_HEIGHT)).toBeCloseTo(Math.PI / 2);
+    expect(zoomTilt(rad(30), 4e7)).toBeCloseTo(Math.PI / 2);
+    const mid = zoomTilt(rad(30), 2e5);
+    expect(mid).toBeGreaterThan(rad(30));
+    expect(mid).toBeLessThan(Math.PI / 2);
   });
 });

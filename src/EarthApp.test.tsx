@@ -21,6 +21,8 @@ const mock = vi.hoisted(() => ({
     setTime: vi.fn(),
     setControls: vi.fn(),
     setHud: vi.fn(),
+    setFlightInput: vi.fn(),
+    setSpeed: vi.fn(),
   },
 }));
 
@@ -54,6 +56,7 @@ beforeEach(() => {
 
 afterEach(() => {
   window.history.replaceState(null, "", "/");
+  window.localStorage.clear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -192,5 +195,36 @@ describe("EarthApp", () => {
     const readout = await screen.findByLabelText("readout");
     expect(readout.textContent).toContain("Ground elevation (above ellipsoid) 980 m");
     mock.renderer.surfaceHeight.mockReturnValue(null);
+  });
+
+  it("switches to Fly mode and back from the toolbar, remembered, never moving the camera and clearing the flight input", async () => {
+    serveConfig({ apiKey: "key", spaceId: "space", buildId: "", mapsKey: "" });
+    const { unmount } = render(<EarthApp />);
+    const view = (await screen.findByTestId("gx")).parentElement as HTMLElement;
+    act(() => mock.props?.onReady?.(mock.renderer as never));
+    mock.renderer.setCamera.mockClear();
+    expect(screen.getByRole("button", { name: "Earth" })).toHaveProperty("ariaPressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Fly" }));
+    expect(window.localStorage.getItem("gx-earth.mode")).toBe("fly");
+    expect(mock.renderer.setSpeed).toHaveBeenCalled();
+    fireEvent.keyDown(view, { code: "KeyW" });
+    expect(mock.renderer.setFlightInput).toHaveBeenLastCalledWith({ move: [0, 0, -1], look: [0, 0, 0], boost: false });
+
+    fireEvent.click(screen.getByRole("button", { name: "Earth" }));
+    expect(mock.renderer.setFlightInput).toHaveBeenLastCalledWith(null);
+    expect(window.localStorage.getItem("gx-earth.mode")).toBe("earth");
+    // Keys do nothing in Earth mode.
+    mock.renderer.setFlightInput.mockClear();
+    fireEvent.keyDown(view, { code: "KeyW" });
+    expect(mock.renderer.setFlightInput).not.toHaveBeenCalled();
+    expect(mock.renderer.setCamera).not.toHaveBeenCalled();
+    unmount();
+
+    // Remembered across loads.
+    window.localStorage.setItem("gx-earth.mode", "fly");
+    render(<EarthApp />);
+    await screen.findByTestId("gx");
+    expect(screen.getByRole("button", { name: "Fly" })).toHaveProperty("ariaPressed", "true");
   });
 });
