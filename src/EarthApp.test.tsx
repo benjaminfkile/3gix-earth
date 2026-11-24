@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { GxRendererProps } from "3gix-renderer";
 import { hubBase } from "./config";
@@ -6,6 +6,7 @@ import { DEFAULT_START, EARTH_FRAME } from "./earth";
 import { latestSolarNoon } from "./geo/solar";
 import { deg, fromPosition, rad, toPosition } from "./geo/wgs84";
 import { headingTilt, orientationFrom, type Quat } from "./geo/enu";
+import { framing } from "./flight";
 
 // The package's Renderer and GxRenderer are mocked: no GPU, no hub.
 const mock = vi.hoisted(() => ({
@@ -27,6 +28,33 @@ const mock = vi.hoisted(() => ({
 }));
 
 vi.mock("./DebugPanel", () => ({ DebugPanel: () => <div data-testid="debug-panel" /> }));
+
+// The Maps JavaScript API: the provider renders its children, and the
+// `places` library is a stand in with one suggestion.
+const places = vi.hoisted(() => {
+  const place = {
+    fetchFields: async () => {},
+    displayName: "Missoula",
+    location: { lat: () => 46.8721, lng: () => -113.994 },
+    viewport: { getNorthEast: () => ({ lat: () => 46.95, lng: () => -113.9 }), getSouthWest: () => ({ lat: () => 46.8, lng: () => -114.1 }) },
+  };
+  return {
+    AutocompleteSessionToken: class {},
+    AutocompleteSuggestion: {
+      fetchAutocompleteSuggestions: async () => ({
+        suggestions: [{ placePrediction: { placeId: "p1", text: { text: "Missoula, MT" }, mainText: { text: "Missoula" }, secondaryText: { text: "MT" }, toPlace: () => place } }],
+      }),
+    },
+  };
+});
+vi.mock("@vis.gl/react-google-maps", () => ({
+  APIProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useMapsLibrary: () => places,
+}));
+
+// The flight is checked in flight.test.ts; here only where it goes.
+const flights = vi.hoisted(() => ({ fly: vi.fn(() => () => {}) }));
+vi.mock("./flight", async (orig) => ({ ...(await orig<typeof import("./flight")>()), fly: flights.fly }));
 
 vi.mock("3gix-renderer", () => ({
   Renderer: class {},
@@ -226,5 +254,54 @@ describe("EarthApp", () => {
     render(<EarthApp />);
     await screen.findByTestId("gx");
     expect(screen.getByRole("button", { name: "Fly" })).toHaveProperty("ariaPressed", "true");
+  });
+
+  it("searches without moving the camera, then flies to the chosen place's framing", async () => {
+    serveConfig({ apiKey: "key", spaceId: "space", buildId: "", mapsKey: "maps" });
+    render(<EarthApp />);
+    await screen.findByTestId("gx");
+    act(() => mock.props?.onReady?.(mock.renderer as never));
+    mock.renderer.setCamera.mockClear();
+    const box = screen.getByLabelText("search places");
+    box.focus();
+    fireEvent.change(box, { target: { value: "Missoula" } });
+    fireEvent.keyDown(box, { key: "s" });
+    expect(await screen.findByText("MT")).toBeTruthy();
+    expect(mock.renderer.setCamera).not.toHaveBeenCalled();
+    expect(flights.fly).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Missoula"));
+    await waitFor(() => expect(flights.fly).toHaveBeenCalledTimes(1));
+    const vp = { north: rad(46.95), south: rad(46.8), east: rad(-113.9), west: rad(-114.1) };
+    // jsdom lays out nothing: the view is 0 by 0, so the aspect falls back to 16:9.
+    const want = framing({ lat: rad(46.8721), lon: rad(-113.994) }, vp, rad(50), 16 / 9);
+    const [r, to] = flights.fly.mock.calls[0] as unknown as [unknown, typeof want];
+    expect(r).toBe(mock.renderer);
+    expect(to.lat).toBeCloseTo(want.lat, 12);
+    expect(to.lon).toBeCloseTo(want.lon, 12);
+    expect(to.height).toBeCloseTo(want.height, 6);
+    expect(to.heading).toBe(0);
+    expect(deg(to.tilt)).toBeCloseTo(45, 9);
+  });
+
+  it("saves the view as a bookmark in local storage and flies to it", async () => {
+    serveConfig({ apiKey: "key", spaceId: "space", buildId: "", mapsKey: "" });
+    render(<EarthApp />);
+    await screen.findByTestId("gx");
+    act(() => mock.props?.onReady?.(mock.renderer as never));
+    const position = toPosition({ lat: rad(10), lon: rad(20), height: 3000 });
+    const original = mock.renderer.getCamera.getMockImplementation()!;
+    onTestFinished(() => void mock.renderer.getCamera.mockImplementation(original));
+    mock.renderer.getCamera.mockReturnValue({ frameId: 4, position, orientation: orientationFrom(position, rad(90), rad(30)), speed: 1 });
+    fireEvent.click(screen.getByRole("button", { name: "Bookmarks" }));
+    fireEvent.change(screen.getByLabelText("bookmark name"), { target: { value: "Spot" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const stored = JSON.parse(window.localStorage.getItem("gx-earth.bookmarks") ?? "[]");
+    expect(stored).toHaveLength(1);
+    expect(stored[0].name).toBe("Spot");
+    expect(deg(stored[0].place.lat)).toBeCloseTo(10, 9);
+    expect(stored[0].place.height).toBeCloseTo(3000, 6);
+    expect(deg(stored[0].place.heading)).toBeCloseTo(90, 9);
+    fireEvent.click(screen.getByText("Spot"));
+    expect(flights.fly).toHaveBeenCalledWith(mock.renderer, stored[0].place);
   });
 });

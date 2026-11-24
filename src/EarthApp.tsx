@@ -1,6 +1,7 @@
 // The exposed module `./EarthApp`: the renderer filling its parent, with
 // this app owning all input (design sections 1 and 3), the readout,
-// compass, inspect, address bar, and debug panel (sections 5 to 7).
+// compass, inspect, search, bookmarks, address bar, and debug panel
+// (sections 5 to 7).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Box, CircularProgress, CssBaseline, Snackbar, ThemeProvider, createTheme, useMediaQuery } from "@mui/material";
@@ -11,7 +12,12 @@ import { fromPosition } from "./geo/wgs84";
 import { latestSolarNoon } from "./geo/solar";
 import { headingTilt, wgs84Mismatch, type Quat } from "./geo/enu";
 import { Compass, ReadoutPanel, Settings, type SettingsState } from "./controls";
+import { APIProvider } from "@vis.gl/react-google-maps";
 import { DebugPanel } from "./DebugPanel";
+import { PlaceSearch, SearchBox, type FoundPlace } from "./search";
+import { BookmarksPanel } from "./BookmarksPanel";
+import { addBookmark, loadBookmarks, removeBookmark, renameBookmark, saveBookmarks, type Bookmark } from "./bookmarks";
+import { fly, framing } from "./flight";
 import { NavController } from "./nav/controller";
 import { attachInput } from "./nav/input";
 import { FlyController, attachFly } from "./nav/fly";
@@ -76,6 +82,15 @@ export default function EarthApp() {
   const narrow = useMediaQuery("(max-width: 599.95px)");
   const viewRef = useRef<HTMLDivElement | null>(null);
   const checkedFrames = useRef(false);
+  const stopFlight = useRef<(() => void) | null>(null);
+  const [bookmarks, setBookmarksState] = useState<Bookmark[]>(() => loadBookmarks());
+  const setBookmarks = useCallback((fn: (l: Bookmark[]) => Bookmark[]) => {
+    setBookmarksState((l) => {
+      const next = fn(l);
+      saveBookmarks(next);
+      return next;
+    });
+  }, []);
   const debugOn = useRef(settings.debug);
   debugOn.current = settings.debug;
 
@@ -158,6 +173,60 @@ export default function EarthApp() {
     };
   }, [renderer, mode]);
 
+  // A flight (search result, bookmark) stops when the person takes the
+  // camera: any press, wheel, or key on the view, or a mode switch.
+  const flyTo = useCallback((place: Place) => {
+    const r = rendererRef.current;
+    if (!r) return;
+    stopFlight.current?.();
+    stopFlight.current = fly(r, place);
+  }, []);
+  useEffect(() => {
+    const el = viewRef.current;
+    const stop = (e: Event) => {
+      const t = e.target;
+      if (t === el || t instanceof HTMLCanvasElement) {
+        stopFlight.current?.();
+        stopFlight.current = null;
+      }
+    };
+    if (!el) return;
+    el.addEventListener("pointerdown", stop, true);
+    el.addEventListener("wheel", stop, true);
+    el.addEventListener("keydown", stop, true);
+    return () => {
+      el.removeEventListener("pointerdown", stop, true);
+      el.removeEventListener("wheel", stop, true);
+      el.removeEventListener("keydown", stop, true);
+      stopFlight.current?.();
+      stopFlight.current = null;
+    };
+  }, [renderer, mode]);
+
+  const onPlace = useCallback(
+    (p: FoundPlace) => {
+      const r = rendererRef.current;
+      const el = viewRef.current;
+      if (!r) return;
+      const aspect = el && el.clientHeight > 0 ? el.clientWidth / el.clientHeight : 16 / 9;
+      flyTo(framing(p.location, p.viewport, rad(r.getFov()), aspect));
+      setMessage(p.name);
+    },
+    [flyTo],
+  );
+
+  const saveView = useCallback(
+    (name: string) => {
+      const r = rendererRef.current;
+      if (!r) return;
+      const pose = r.getCamera();
+      if (pose.frameId !== EARTH_FRAME) return;
+      const { elevation: _, ...place } = readoutOf(r, pose);
+      setBookmarks((l) => addBookmark(l, name, place));
+    },
+    [setBookmarks],
+  );
+
   // The readout also refreshes when tiles arrive under a still camera.
   const refreshReadout = useCallback(() => {
     const r = rendererRef.current;
@@ -233,6 +302,12 @@ export default function EarthApp() {
       </Alert>
     );
   } else if (connection && config) {
+    const overlay = (
+      <>
+        <PlaceSearch onPlace={onPlace} />
+        {settings.debug && <DebugPanel mapsKey={config.mapsKey} view={debug} onGo={goTo} />}
+      </>
+    );
     body = (
       <>
         <GxRenderer
@@ -257,7 +332,21 @@ export default function EarthApp() {
             <BoostButton onBoost={(on) => flyRef.current?.setBoost(on)} />
           </>
         )}
-        {settings.debug && <DebugPanel mapsKey={config.mapsKey} view={debug} onGo={goTo} />}
+        {config.mapsKey !== "" ? (
+          <APIProvider apiKey={config.mapsKey}>{overlay}</APIProvider>
+        ) : (
+          <>
+            <SearchBox api={null} onPlace={onPlace} />
+            {settings.debug && <DebugPanel mapsKey="" view={debug} onGo={goTo} />}
+          </>
+        )}
+        <BookmarksPanel
+          list={bookmarks}
+          onSave={saveView}
+          onGo={(b) => flyTo(b.place)}
+          onRename={(id, name) => setBookmarks((l) => renameBookmark(l, id, name))}
+          onDelete={(id) => setBookmarks((l) => removeBookmark(l, id))}
+        />
         <Snackbar open={message !== null} autoHideDuration={6000} onClose={() => setMessage(null)} message={message ?? ""} anchorOrigin={{ vertical: "top", horizontal: "center" }} />
       </>
     );

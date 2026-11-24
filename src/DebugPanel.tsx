@@ -2,13 +2,14 @@
 // The debug panel (design section 7): a top-down map and Google's
 // photorealistic 3D map following the renderer.
 //
-// The Maps JavaScript API is loaded once, by the one `APIProvider` here.
+// The Maps JavaScript API is loaded once, by the one `APIProvider` in
+// `EarthApp` (the search box uses it too).
 // `Map3D` (from `@vis.gl/react-google-maps/3d`) gets `Map3DElement` through
 // `google.maps.importLibrary("maps3d")` on that same loader, as Google's
 // current documentation for the 3D map describes.
 
 import { useState } from "react";
-import { APIProvider, AdvancedMarker, Map, Pin, Polyline, type MapMouseEvent } from "@vis.gl/react-google-maps";
+import { AdvancedMarker, Map, Pin, Polyline, type MapMouseEvent } from "@vis.gl/react-google-maps";
 import { Map3D, MapMode } from "@vis.gl/react-google-maps/3d";
 import { Box, Paper, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import type { DebugView, LatLng } from "./view";
@@ -38,8 +39,7 @@ export function DebugPanel({ mapsKey, view, onGo }: { mapsKey: string; view: Deb
   }
   const camera = view?.camera ?? { lat: 0, lng: 0 };
   return (
-    <APIProvider apiKey={mapsKey}>
-      <Paper sx={panelSx} data-testid="debug-panel">
+    <Paper sx={panelSx} data-testid="debug-panel">
         <ToggleButtonGroup size="small" exclusive value={mapType} onChange={(_, v: MapType | null) => v && setMapType(v)} sx={{ m: 1 }}>
           <ToggleButton value="roadmap">Road</ToggleButton>
           <ToggleButton value="satellite">Satellite</ToggleButton>
@@ -83,8 +83,7 @@ export function DebugPanel({ mapsKey, view, onGo }: { mapsKey: string; view: Deb
             <Typography sx={{ p: 2 }}>The view center meets no ground.</Typography>
           )}
         </Box>
-      </Paper>
-    </APIProvider>
+    </Paper>
   );
 }
 
