@@ -1,15 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Pose } from "3gix-renderer";
-import { headingTilt, orientationFrom, type Quat } from "../geo/enu";
+import { enu, headingTilt, orientationFrom, rotate, type Quat } from "../geo/enu";
 import { fromPosition, rad, toPosition } from "../geo/wgs84";
-import { DRAG_LOOK, FlyController, KEY_LOOK, attachFly, flightInput, stickVector, type FlyRenderer } from "./fly";
+import { DRAG_LOOK, FlyController, KEY_LOOK, MAX_LOOK_TILT, arrowLook, attachFly, flightInput, stickVector, type FlyRenderer } from "./fly";
 import { speedFor } from "./math";
 
 const ELEVATION = 1000;
 
-function setup(height = 500) {
+/** The horizon's roll: the camera's right axis against the local vertical, radians. */
+function roll(p: Pose): number {
+  const g = fromPosition(p.position);
+  const right = rotate(p.orientation as Quat, [1, 0, 0]);
+  const up = enu(g.lat, g.lon).up;
+  return Math.asin(right[0] * up[0] + right[1] * up[1] + right[2] * up[2]);
+}
+
+function setup(height = 500, tilt = rad(10)) {
   const position = toPosition({ lat: rad(46.87), lon: rad(-113.99), height: ELEVATION + height });
-  let pose: Pose = { frameId: 4, position, orientation: orientationFrom(position, 0, rad(10)), speed: 1 };
+  let pose: Pose = { frameId: 4, position, orientation: orientationFrom(position, 0, tilt), speed: 1 };
+  const frames: Array<() => void> = [];
   const r = {
     setCamera: vi.fn((p: Pose, _o?: unknown) => {
       pose = p;
@@ -19,8 +28,15 @@ function setup(height = 500) {
     setFlightInput: vi.fn(),
     setSpeed: vi.fn(),
   };
-  const fly = new FlyController(r as unknown as FlyRenderer);
-  return { fly, r, pose: () => pose };
+  const fly = new FlyController(r as unknown as FlyRenderer, (fn) => {
+    frames.push(fn);
+    return () => frames.splice(frames.indexOf(fn), 1);
+  });
+  /** Runs `n` animation frames. */
+  const run = (n: number) => {
+    for (let i = 0; i < n; i++) frames.shift()?.();
+  };
+  return { fly, r, pose: () => pose, run, frames };
 }
 
 describe("flightInput", () => {
@@ -34,9 +50,10 @@ describe("flightInput", () => {
     expect(flightInput(new Set(["KeyW", "KeyS", "KeyQ", "Space"])).move).toEqual([0, 0, 0]);
   });
 
-  it("turns with the arrow keys and boosts with either Shift", () => {
-    expect(flightInput(new Set(["ArrowLeft", "ArrowUp"])).look).toEqual([KEY_LOOK, KEY_LOOK, 0]);
-    expect(flightInput(new Set(["ArrowRight", "ArrowDown"])).look).toEqual([-KEY_LOOK, -KEY_LOOK, 0]);
+  it("never sends look (arrow keys turn through setCamera) and boosts with either Shift", () => {
+    expect(flightInput(new Set(["ArrowLeft", "ArrowUp"])).look).toEqual([0, 0, 0]);
+    expect(arrowLook(new Set(["ArrowLeft", "ArrowUp"]))).toEqual({ heading: -KEY_LOOK, tilt: -KEY_LOOK });
+    expect(arrowLook(new Set(["ArrowRight", "ArrowDown"]))).toEqual({ heading: KEY_LOOK, tilt: KEY_LOOK });
     expect(flightInput(new Set(["ShiftLeft"])).boost).toBe(true);
     expect(flightInput(new Set(["ShiftRight"])).boost).toBe(true);
     expect(flightInput(new Set(), undefined, true).boost).toBe(true);
@@ -102,6 +119,47 @@ describe("FlyController", () => {
     const a = headingTilt(after.position, after.orientation as Quat);
     expect(a.heading).toBeCloseTo(100 * DRAG_LOOK, 6);
     expect(a.tilt).toBeCloseTo(rad(10) + 50 * DRAG_LOOK, 6);
+  });
+
+  it("turns with the arrow keys each frame until let go, without a flight input", () => {
+    const { fly, r, pose, run, frames } = setup();
+    fly.keyDown("ArrowLeft");
+    expect(r.setFlightInput).not.toHaveBeenCalled();
+    run(10);
+    expect(headingTilt(pose().position, pose().orientation as Quat).heading).toBeCloseTo(2 * Math.PI - 10 * KEY_LOOK, 6);
+    fly.keyUp("ArrowLeft");
+    run(1);
+    expect(frames).toHaveLength(0);
+  });
+
+  it("keeps the heading through a left turn then a pitch, tilted down", () => {
+    const { fly, pose, run } = setup(500, rad(45));
+    fly.keyDown("ArrowLeft");
+    run(Math.round(rad(90) / KEY_LOOK));
+    fly.keyUp("ArrowLeft");
+    run(1);
+    const turnedLeft = headingTilt(pose().position, pose().orientation as Quat).heading;
+    expect(Math.abs(roll(pose()))).toBeLessThan(1e-9);
+    fly.keyDown("ArrowUp");
+    run(20);
+    fly.keyUp("ArrowUp");
+    run(1);
+    const a = headingTilt(pose().position, pose().orientation as Quat);
+    expect(a.heading).toBeCloseTo(turnedLeft, 9);
+    expect(a.tilt).toBeCloseTo(rad(45) - 20 * KEY_LOOK, 9);
+    fly.look(0, 300);
+    expect(headingTilt(pose().position, pose().orientation as Quat).heading).toBeCloseTo(turnedLeft, 9);
+  });
+
+  it("never rolls the horizon and clamps tilt at 89 degrees", () => {
+    const { fly, pose } = setup(500, rad(30));
+    const moves: Array<[number, number]> = [[-500, 0], [0, 400], [800, -900], [-300, 2000], [1234, -77], [0, -5000]];
+    for (const [dx, dy] of moves) {
+      fly.look(dx, dy);
+      expect(Math.abs(roll(pose()))).toBeLessThan(1e-9);
+      expect(Math.abs(headingTilt(pose().position, pose().orientation as Quat).tilt)).toBeLessThanOrEqual(MAX_LOOK_TILT + 1e-9);
+    }
+    expect(headingTilt(pose().position, pose().orientation as Quat).tilt).toBeCloseTo(-MAX_LOOK_TILT, 9);
   });
 });
 

@@ -1,8 +1,13 @@
 // Fly mode (design section 4): free flight through `setFlightInput` and
 // `setSpeed`. Keys, the touch joystick, and the boost button are turned into
-// one held flight input; looking with the mouse or a finger turns the camera
-// in place with `setCamera`. The pure parts (keys and joystick to flight
-// input) come first; the controller and the DOM listeners after.
+// one held flight input for moving (`move` and `boost`, never `look`).
+// Looking (arrow keys, mouse, finger) is applied here instead: heading and
+// tilt are kept as state, heading turns about the local vertical and tilt
+// about the camera's right axis, and the orientation is written with
+// `setCamera` built from the two, so the horizon never rolls. The renderer's
+// `look` turns about the camera's own axes, which rolls the horizon after a
+// turn while tilted. The pure parts (keys and joystick to flight input) come
+// first; the controller and the DOM listeners after.
 
 import type { FlightInput, Pose, Renderer, Vec3 } from "3gix-renderer";
 import { EARTH_FRAME, RIDE } from "../earth";
@@ -12,12 +17,12 @@ import { fromPosition, rad } from "../geo/wgs84";
 import { turned } from "../view";
 import { speedFor, withClearance } from "./math";
 
-/** Arrow keys turn this much each renderer tick (about 1.2 radians a second at 60 ticks a second). */
+/** Arrow keys turn this much each animation frame (about 1.2 radians a second at 60 frames a second). */
 export const KEY_LOOK = 0.02;
 /** Mouse or finger look, radians per pixel. */
 export const DRAG_LOOK = 0.003;
 /** Looking up or down stops short of straight up or down. */
-const MAX_LOOK_TILT = rad(89);
+export const MAX_LOOK_TILT = rad(89);
 
 /** The keys Fly mode reads (`KeyboardEvent.code`). */
 export const FLY_KEYS = new Set([
@@ -48,7 +53,8 @@ const ZERO: Stick = { x: 0, y: 0 };
 /**
  * The flight input for held keys (codes), a joystick deflection, and the
  * boost button. Camera axes: +x right, +y up, -z forward (the camera looks
- * along its -z). `look` is yaw (positive left), pitch (positive up), roll.
+ * along its -z). `look` is always zero: looking is applied with `setCamera`
+ * (see `arrowLook`).
  */
 export function flightInput(keys: ReadonlySet<string>, stick: Stick = ZERO, boostButton = false): FlightInput {
   const k = (code: string) => (keys.has(code) ? 1 : 0);
@@ -59,8 +65,13 @@ export function flightInput(keys: ReadonlySet<string>, stick: Stick = ZERO, boos
     clamp(Math.min(1, k("KeyE") + k("Space")) - Math.min(1, k("KeyQ") + k("KeyC"))),
     clamp(k("KeyS") - k("KeyW") + s.y),
   ];
-  const look: Vec3 = [(k("ArrowLeft") - k("ArrowRight")) * KEY_LOOK, (k("ArrowUp") - k("ArrowDown")) * KEY_LOOK, 0];
-  return { move, look, boost: boostButton || keys.has("ShiftLeft") || keys.has("ShiftRight") };
+  return { move, look: [0, 0, 0], boost: boostButton || keys.has("ShiftLeft") || keys.has("ShiftRight") };
+}
+
+/** The turn the held arrow keys make in one frame: heading (radians, positive right) and tilt (radians, positive down). */
+export function arrowLook(keys: ReadonlySet<string>): { heading: number; tilt: number } {
+  const k = (code: string) => (keys.has(code) ? 1 : 0);
+  return { heading: (k("ArrowRight") - k("ArrowLeft")) * KEY_LOOK, tilt: (k("ArrowDown") - k("ArrowUp")) * KEY_LOOK };
 }
 
 /** A joystick deflection kept inside the unit circle. Pushing up (y negative) flies forward. */
@@ -78,14 +89,36 @@ export function idle(f: FlightInput): boolean {
 /** What Fly mode needs from the renderer. */
 export type FlyRenderer = Pick<Renderer, "setCamera" | "getCamera" | "surfaceHeight" | "setFlightInput" | "setSpeed">;
 
+/** Runs `fn` before the next frame; returns a cancel. */
+export type FrameScheduler = (fn: () => void) => () => void;
+
+const animationFrame: FrameScheduler = (fn) => {
+  if (typeof requestAnimationFrame !== "function") {
+    const t = setTimeout(fn, 16);
+    return () => clearTimeout(t);
+  }
+  const id = requestAnimationFrame(fn);
+  return () => cancelAnimationFrame(id);
+};
+
+const ARROWS = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
+
 export class FlyController {
   private keys = new Set<string>();
   private stick: Stick = ZERO;
   private boost = false;
   private speed = 0;
   private sent: FlightInput | null = null;
+  /** The look state, and the orientation last written from it (null until the first look). */
+  private heading = 0;
+  private tilt = 0;
+  private written: Quat | null = null;
+  private cancelFrame: (() => void) | null = null;
 
-  constructor(private readonly r: FlyRenderer) {
+  constructor(
+    private readonly r: FlyRenderer,
+    private readonly frame: FrameScheduler = animationFrame,
+  ) {
     const pose = r.getCamera();
     if (pose.frameId === EARTH_FRAME) this.updateSpeed(pose);
   }
@@ -113,6 +146,7 @@ export class FlyController {
     if (this.keys.has(code)) return true;
     this.keys.add(code);
     this.send();
+    this.startArrows();
     return true;
   }
 
@@ -121,6 +155,18 @@ export class FlyController {
     this.keys.delete(code);
     this.send();
     return true;
+  }
+
+  private startArrows(): void {
+    if (this.cancelFrame || !ARROWS.some((a) => this.keys.has(a))) return;
+    const step = () => {
+      this.cancelFrame = null;
+      const t = arrowLook(this.keys);
+      if (t.heading === 0 && t.tilt === 0) return;
+      this.turn(t.heading, t.tilt);
+      this.cancelFrame = this.frame(step);
+    };
+    this.cancelFrame = this.frame(step);
   }
 
   setStick(stick: Stick): void {
@@ -136,15 +182,36 @@ export class FlyController {
   /** Turns the camera in place by a mouse or finger move, pixels. Right and down look right and down. */
   look(dx: number, dy: number): void {
     if (dx === 0 && dy === 0) return;
+    this.turn(dx * DRAG_LOOK, dy * DRAG_LOOK);
+  }
+
+  /**
+   * Turns the heading about the local vertical and the tilt about the
+   * camera's right axis (radians; positive right and down), with no roll.
+   * The state is taken again from the pose when something else turned the
+   * camera since the last look (the compass, a flight).
+   */
+  turn(dHeading: number, dTilt: number): void {
     const pose = this.r.getCamera();
     if (pose.frameId !== EARTH_FRAME) return;
-    const { heading, tilt } = headingTilt(pose.position, pose.orientation as Quat);
-    const t = Math.max(-MAX_LOOK_TILT, Math.min(MAX_LOOK_TILT, tilt + dy * DRAG_LOOK));
-    this.r.setCamera(turned(pose, heading + dx * DRAG_LOOK, t), RIDE);
+    const q = pose.orientation as Quat;
+    if (!this.written || q.some((v, i) => v !== this.written![i])) {
+      const ht = headingTilt(pose.position, q);
+      this.heading = ht.heading;
+      this.tilt = ht.tilt;
+    }
+    const full = 2 * Math.PI;
+    this.heading = (((this.heading + dHeading) % full) + full) % full;
+    this.tilt = Math.max(-MAX_LOOK_TILT, Math.min(MAX_LOOK_TILT, this.tilt + dTilt));
+    const next = turned(pose, this.heading, this.tilt);
+    this.written = next.orientation as Quat;
+    this.r.setCamera(next, RIDE);
   }
 
   /** Lets go of every key, the stick, and boost, and clears the renderer's flight input. */
   clear(): void {
+    this.cancelFrame?.();
+    this.cancelFrame = null;
     this.keys.clear();
     this.stick = ZERO;
     this.boost = false;
