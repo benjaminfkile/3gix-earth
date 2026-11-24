@@ -8,12 +8,24 @@
 // current documentation for the 3D map describes.
 
 import { useState } from "react";
-import { APIProvider, Map, Marker, Polyline, type MapMouseEvent } from "@vis.gl/react-google-maps";
+import { APIProvider, AdvancedMarker, Map, Pin, Polyline, type MapMouseEvent } from "@vis.gl/react-google-maps";
 import { Map3D, MapMode } from "@vis.gl/react-google-maps/3d";
 import { Box, Paper, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import type { DebugView, LatLng } from "./view";
 
 type MapType = "roadmap" | "satellite" | "terrain";
+
+/** Advanced markers need a map id; Google's demo id serves for development. */
+const MAP_ID = "DEMO_MAP_ID";
+
+/** The camera marker: an arrow pointing along the heading (compass degrees). */
+function HeadingArrow({ heading }: { heading: number }) {
+  return (
+    <svg width={28} height={28} viewBox="-10 -10 20 20" style={{ transform: `rotate(${heading}deg)`, display: "block" }} data-testid="heading-arrow">
+      <polygon points="0,-9 6,7 0,3 -6,7" fill="#e53935" stroke="#fff" strokeWidth={1.2} />
+    </svg>
+  );
+}
 
 export function DebugPanel({ mapsKey, view, onGo }: { mapsKey: string; view: DebugView | null; onGo: (at: LatLng) => void }) {
   const [mapType, setMapType] = useState<MapType>("satellite");
@@ -25,10 +37,6 @@ export function DebugPanel({ mapsKey, view, onGo }: { mapsKey: string; view: Deb
     );
   }
   const camera = view?.camera ?? { lat: 0, lng: 0 };
-  const arrow =
-    typeof google !== "undefined" && google.maps?.SymbolPath
-      ? { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 5, rotation: view?.heading ?? 0, strokeColor: "#e53935", fillColor: "#e53935", fillOpacity: 1 }
-      : undefined;
   return (
     <APIProvider apiKey={mapsKey}>
       <Paper sx={panelSx} data-testid="debug-panel">
@@ -39,6 +47,7 @@ export function DebugPanel({ mapsKey, view, onGo }: { mapsKey: string; view: Deb
         </ToggleButtonGroup>
         <Box sx={{ flex: 1, minHeight: 0 }}>
           <Map
+            mapId={MAP_ID}
             mapTypeId={mapType}
             center={view?.center ?? camera}
             defaultZoom={10}
@@ -46,8 +55,16 @@ export function DebugPanel({ mapsKey, view, onGo }: { mapsKey: string; view: Deb
             gestureHandling="greedy"
             onClick={(e: MapMouseEvent) => e.detail.latLng && onGo(e.detail.latLng)}
           >
-            {view && <Marker position={view.camera} icon={arrow} title="camera" />}
-            {view?.center && <Marker position={view.center} title="view center" />}
+            {view && (
+              <AdvancedMarker position={view.camera} title="camera" anchorPoint={["50%", "50%"]}>
+                <HeadingArrow heading={view.heading} />
+              </AdvancedMarker>
+            )}
+            {view?.center && (
+              <AdvancedMarker position={view.center} title="view center">
+                <Pin background="#ffeb3b" borderColor="#000" glyphColor="#000" />
+              </AdvancedMarker>
+            )}
             {view?.center && <Polyline path={[view.camera, view.center]} strokeColor="#ffeb3b" strokeWeight={2} />}
           </Map>
         </Box>
@@ -73,7 +90,8 @@ export function DebugPanel({ mapsKey, view, onGo }: { mapsKey: string; view: Deb
 
 const panelSx = {
   position: "absolute",
-  top: 8,
+  // Below the toolbar (Settings at the top right) so every control stays reachable.
+  top: 56,
   bottom: 8,
   right: 72,
   width: "min(40%, 480px)",
