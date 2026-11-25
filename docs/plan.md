@@ -14,7 +14,7 @@ Contract: `docs/design.md` here and `3gix-shell/docs/design.md`. Rules for every
 | E5 search, bookmarks (861) | 3gix-earth | `briefs/E5.md` | E4 |
 | E6 time, layers, phones (862) | 3gix-earth | `briefs/E6.md` | E5 |
 
-The renderer package comes from the `3gix-renderer` GitHub release v0.1.3.
+The renderer package comes from the `3gix-renderer` GitHub release v0.1.4.
 
 ## Log
 
@@ -29,3 +29,4 @@ The renderer package comes from the `3gix-renderer` GitHub release v0.1.3.
 - 2026-11-23: E5 (861) verified: `npm run ci` ok on the Mac (124 tests); in headless Chrome inside the shell, typing "Matterhorn" shows five Google Places suggestions, choosing one by keyboard flies the camera there; Fly mode turns and pitches with a level horizon (the E4 roll is fixed). Found: the inspect message covers the search box; added to E6 as item 0.
 - 2026-11-23: E6 (862) verified: `npm run ci` ok on the Mac (130 tests); in headless Chrome inside the shell at desktop size the time panel shows local solar time with play speeds; at phone size (390 by 844, touch) the view fills the screen with the mode toggle, search, compass, Down, and a Panels button, and the bottom sheet opens with its tabs. The PC reaches both apps over HTTPS with the local certificate trusted. Wave done; ready for Ben's first round of testing.
 - 2026-11-24: renderer package 0.1.3 (pre-release, built from renderer ea74f27): the memory wave (`3GIXHub/docs/build/renderer-memory`). The browser renderer keeps what it holds within one byte budget, 512 MiB, or 192 MiB on a touch or small-memory device; measured in this app over a 4 to 5 minute pan, WebAssembly memory 509 MB at 1280 x 720 and 264 MB at phone size, against 3.1 GB and 1.5 GB rising before. `npm run ci` ok. Waiting on Ben's verification on grunt; nothing to dev or main before it.
+- 2026-11-25: renderer package 0.1.4 (release, built from renderer 815730c): the memory wave M1 to M8. Over the budget the view settles a little coarser with room to move; touch devices reporting 8 GB or more get 384 MiB; tiles turning into view fall back per quarter to a built ancestor, so turning does not flicker. Verified by Ben on his phone and a desktop browser. `npm run ci` ok. Merged into dev and main with Ben's go.
