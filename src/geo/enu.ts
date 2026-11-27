@@ -129,10 +129,10 @@ export function poseAt(frameId: number, position: Vec3, heading: number, tilt: n
 export function wgs84Mismatch(frame: FrameInfo | undefined): string | null {
   const s = frame?.surface;
   if (!s) return null;
-  const da = s.radiusEquatorial - WGS84_A;
-  const db = s.radiusPolar - WGS84_B;
+  const da = s.radiusXy - WGS84_A;
+  const db = s.radiusZ - WGS84_B;
   if (Math.abs(da) <= 1 && Math.abs(db) <= 1) return null;
-  return `frame ${frame.id} surface radii (${s.radiusEquatorial} m, ${s.radiusPolar} m) differ from WGS84 (${WGS84_A} m, ${WGS84_B} m)`;
+  return `frame ${frame.id} surface radii (${s.radiusXy} m, ${s.radiusZ} m) differ from WGS84 (${WGS84_A} m, ${WGS84_B} m)`;
 }
 
 /** Where a ray from `origin` along `direction` first meets the WGS84 ellipsoid, or null. */

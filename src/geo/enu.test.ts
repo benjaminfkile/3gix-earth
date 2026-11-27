@@ -71,7 +71,7 @@ describe("great-circle distance", () => {
 });
 
 describe("WGS84 check", () => {
-  const frame = (a: number, b: number) => ({ id: 4, parentId: 1, mass: 1, angularVelocity: [0, 0, 0] as Vec3, hasSurface: true, surface: { radiusEquatorial: a, radiusPolar: b, heightFloor: -11000 } });
+  const frame = (a: number, b: number) => ({ id: 4, parentId: 1, mass: 1, angularVelocity: [0, 0, 0] as Vec3, hasSurface: true, surface: { radiusXy: a, radiusZ: b, heightFloor: -11000 } });
   it("passes within 1 m", () => expect(wgs84Mismatch(frame(WGS84_A + 0.5, WGS84_B - 0.5))).toBeNull());
   it("reports more than 1 m", () => expect(wgs84Mismatch(frame(6371000, 6371000))).toMatch(/differ from WGS84/));
   it("waits for the surface", () => expect(wgs84Mismatch(undefined)).toBeNull());
